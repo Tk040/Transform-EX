@@ -1,0 +1,115 @@
+{
+  "id": "Test-hylba1",
+  "name": "Transform EX",
+  "version": "1.0.0",
+  "main": "index.html",
+  "host": [
+    {
+      "app": "PS",
+      "minVersion": "23.5.0",
+      "data": {
+        "apiVersion": 2,
+        "loadEvent": "use",
+        "enableMenuRecording": true
+      }
+    }
+  ],
+  "manifestVersion": 5,
+  "entrypoints": [
+    {
+      "type": "command",
+      "id": "transformEX",
+      "label": {
+        "default": "Multi-Transform",
+        "zh-CN": "多选变换"
+      }
+    },
+    {
+      "type": "panel",
+      "id": "vanilla",
+      "minimumSize": {
+        "width": 230,
+        "height": 190
+      },
+      "maximumSize": {
+        "width": 2000,
+        "height": 2000
+      },
+      "preferredDockedSize": {
+        "width": 230,
+        "height": 190
+      },
+      "preferredFloatingSize": {
+        "width": 230,
+        "height": 190
+      },
+      "icons": [
+        {
+          "width": 23,
+          "height": 23,
+          "path": "icons/dark.png",
+          "scale": [
+            1,
+            2
+          ],
+          "theme": [
+            "dark",
+            "darkest"
+          ],
+          "species": [
+            "generic"
+          ]
+        },
+        {
+          "width": 32,
+          "height": 32,
+          "path": "icons/light.png",
+          "scale": [
+            1,
+            2
+          ],
+          "theme": [
+            "lightest",
+            "light"
+          ],
+          "species": [
+            "generic"
+          ]
+        }
+      ],
+      "label": {
+          "default": "Transform Panel",
+          "zh-CN": "变换面板"
+      }
+    }
+  ],
+  "icons": [
+    {
+      "width": 23,
+      "height": 23,
+      "path": "icons/dark@2x.png",
+      "scale": [
+        1,
+        2
+      ],
+      "theme": [
+        "darkest",
+        "dark",
+        "medium"
+      ]
+    },
+    {
+      "width": 23,
+      "height": 23,
+      "path": "icons/light@2x.png",
+      "scale": [
+        1,
+        2
+      ],
+      "theme": [
+        "lightest",
+        "light"
+      ]
+    }
+  ]
+}
