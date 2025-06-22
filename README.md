@@ -1,20 +1,32 @@
-# Introduction
+## 介绍
 
-This starter plugin is a good place to get started when developing for Photoshop. It does not rely on any frameworks or build steps -- hence the name "Vanilla".
+一款非常简单的photoshop插件，提供了在多选图层和选区同时存在的情况下进行自由变换的功能，性能尚佳。
 
-## Compatibility
+## 兼容性
 
-Since Photoshop 
+Photoshop 2022以上版本（23.5）
 
-## Getting Started
+## 下载
 
-Make sure Photoshop is up and running first. First, add the plugin to the "Developer Workspace" in the UXP Developer Tools (UDT) application.
-  * If you selected "Create Plugin..." earlier, it will have already be there with the plugin ID and name you specified. 
-  * Otherwise, click "Add Plugin" and select the `manifest.json` file in the corresponding plugin folder.
+Release版本：https://github.com/Tk040/Transform-EX/releases
 
-Click the ••• button next to the corresponding workspace entry, and click "Load". Switch over to Photoshop, and the plugin's panel will be running. 
+## 安装方法
 
-## Documentation
+#### 自动安装（需要Creative Cloud）：
 
-* Read more about creating and debugging plugins using the UDT application [here](https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/udt-walkthrough/). 
-* We build on this starter template and show you how to [edit a document](https://developer.adobe.com/photoshop/uxp/2022/guides/getting-started/editing-the-document/) and [write a file](https://developer.adobe.com/photoshop/uxp/2022/guides/getting-started/writing-a-file/) using UXP. 
+下载.ccx格式安装包，直接执行安装即可。
+
+#### 手动安装（不需要Creative Cloud）：
+
+下载.zip格式压缩包，解压在photoshop安装目录下的Plug-ins文件夹即可。
+
+## 使用
+
+安装好后可在增效工具菜单栏中找到Transform EX，有面板式和命令式两种调用方式，这两种方式的效果完全一致，可随意使用。
+
+## 存在的问题
+
+* 由于变换预览的实现方式，在有选区的情况下变换预览可能会出现图层层次关系错乱的现象，尚无解决办法。
+* 不支持调整图层等特殊图层的变换
+* 不支持快捷键，但可以记录成动作并设置动作的快捷键
+* 暂存盘接近满的情况下可能只能完成部分操作甚至操作失败
