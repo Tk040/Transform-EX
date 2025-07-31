@@ -23,7 +23,8 @@ const str = {
     no_layers: "No layers",
     one_layer: "1 layer selected",
     many_layers: "#{count} layers selected",
-    transform_button: "Multi-Transform"
+    transform_button: "Multi-Transform",
+    tranform_invisible_layers: "Tranform invisible layers"
   },
   "zh_CN": {
     history: "多选变换",
@@ -31,7 +32,8 @@ const str = {
     no_layers: "未选择图层",
     one_layer: "已选择#{count}个图层",
     many_layers: "已选择#{count}个图层",
-    transform_button: "多选变换"
+    transform_button: "多选变换",
+    tranform_invisible_layers: "变换不可见图层"
   }
 }
 
@@ -48,11 +50,13 @@ function compareVersion(v1, v2) {
   }
   return 0;
 }
-
+//各种组件
 const { app, core, action } = require('photoshop');
 const host = require('uxp').host;
 const locale = host.uiLocale;
-const version =  compareVersion(host.version, "24.6.0")>=0?"new":"old";
+const version = compareVersion(host.version, "24.6.0") >= 0 ? "new" : "old";
+//属性
+let includeInvisible;
 
 
 function translate(key, variables = {}, locale) {
@@ -88,7 +92,7 @@ const getAllLayerAct = [{
       { _ref: "document", _enum: "ordinal" }
     ]
   },
-  extendedReference: [["name", "layerID", "layerKind"], { _obj: "layer", index: 0, count: -1 }],
+  extendedReference: [["name", "layerID", "layerKind", "visible"], { _obj: "layer", index: 0, count: -1 }],
   options: {
     failOnMissingProperty: false,
     failOnMissingElement: false
@@ -98,21 +102,27 @@ const getTargetLayerAct = [{
   _obj: "get",
   _target: [{ _property: "targetLayersIDs" }, { _ref: "document", _enum: "ordinal", _value: "targetEnum" }]
 }]
-//获取所有图层
-async function getSelectedLayers(kindArray = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12]) {
-
+async function getAllLayers() {
   const res0 = await action.batchPlay(getAllLayerAct, {});
-  const res1 = await action.batchPlay(getTargetLayerAct, {});
+  return res0[0].list
+}
+async function getTargetLayersIDs() {
+  const res0 = await action.batchPlay(getTargetLayerAct, {});
+  return res0[0].targetLayersIDs;
+}
+//获取所有图层
+async function getSelectedLayersIDs(kindArray = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12]) {
+
   const layerMap = new Map()
-  const allLayers = res0[0].list;
-  const targetLayers = res1[0].targetLayersIDs;
+  const allLayers = await getAllLayers();
+  const targetLayersIDs = await getTargetLayersIDs();
   const layerSet = new Set();
 
   for (let i = 0; i < allLayers.length; i++) {
     layerMap.set(allLayers[i].layerID, i)
   }
-
-  for (layer of targetLayers) {
+  //组树结构处理
+  for (layer of targetLayersIDs) {
     let index = layerMap.get(layer._id);
     if (kindArray.includes(allLayers[index].layerKind)) {
       layerSet.add(layer._id)
@@ -150,8 +160,8 @@ async function freeTransformEX(executionContext) {
     documentID: app.activeDocument.id,
     name: translate("history", {}, locale)
   });
-
-  const layers = await getSelectedLayers([1]);
+  const allLayers = await getAllLayers();
+  const layersIDs = await getSelectedLayersIDs([1]);
   let act2 = [
     {
       _obj: "transform",
@@ -166,16 +176,20 @@ async function freeTransformEX(executionContext) {
     }
   ]
   //可用普通变换的情况
-  if (layers.length <= 1 || !await hasSelection()) {
-    await action.batchPlay(act2, {});
+  if (layersIDs.length <= 1 || !await hasSelection()) {
+    await core.performMenuCommand({ commandID: 2207 });
     await hostControl.resumeHistory(suspensionID);
     return;
   }
-
-  let targetLayers = layers.map(layerId => ({
+  const targetLayersIDs = layersIDs.filter(id => allLayers.find(layer => layer.layerID === id).visible || includeInvisible).map(layerId => ({
     "_id": layerId,
     "_ref": "layer"
   }))
+  const invisibleLayers = allLayers.filter(l => !l.visible).map(layer => ({
+    "_id": layer.layerID,
+    "_ref": "layer"
+  }));
+
   let act1 = [
     // 复制 选区
     {
@@ -190,7 +204,7 @@ async function freeTransformEX(executionContext) {
     },
     {
       "_obj": "duplicate",
-      "_target": targetLayers,
+      "_target": targetLayersIDs,
       "version": 5
     },
     {
@@ -199,23 +213,31 @@ async function freeTransformEX(executionContext) {
     // 隐藏图层
     {
       "_obj": "hide",
-      "null": targetLayers
+      "null": targetLayersIDs
     }
   ];
 
   //执行操作
   await action.batchPlay(act1, { immediateRedraw: true });
-  let transformData = await action.batchPlay(act2, {})
+  const performResult = await core.performMenuCommand({ commandID: 2207 });
 
-  if (transformData[0].result === -128) {
+  if (performResult.available == false || performResult.userCancelled == true) {
     //回退记录
     await hostControl.resumeHistory(suspensionID, false);
     return;
   }
 
-  //构造变换动作串
-  let act3 = [];
+  console.log(await action.batchPlay([{
+    "_obj": "transform",
+    _target: [
+      { _ref: "layer", _enum: "ordinal", _value: "targetEnum" },
+    ],
+    "lastTransform": true
+  }], {}))
 
+  //构造最终变换动作串
+  let act3 = [];
+  //起头
   act3.push(
     // 设置 选区
     {
@@ -244,9 +266,9 @@ async function freeTransformEX(executionContext) {
     },
     {
       "_obj": "show",
-      "null": targetLayers
+      "null": targetLayersIDs
     })
-  for (let layerId of layers) {
+  for (let layerId of layersIDs) {
 
     act3.push(...[
       //选择图层
@@ -275,10 +297,11 @@ async function freeTransformEX(executionContext) {
       // 变换 当前图层
       {
         "_obj": "transform",
-        ...transformData[0]
+        "lastTransform": true
       }
     ]);
   }
+  //收尾
   act3.push({
     _obj: "delete",
     _target: [
@@ -287,9 +310,13 @@ async function freeTransformEX(executionContext) {
         _name: "selec临时选区tion"
       }
     ]
-  })
-  //console.log(version)
+  },
+    {
+      "_obj": "hide",
+      "null": invisibleLayers
+    })
   //start = performance.now()
+  let result;
   if (version === "new") {
     result = await action.batchPlay(act3, { continueOnError: true });
   }
@@ -300,14 +327,14 @@ async function freeTransformEX(executionContext) {
     }
   }
   //end = performance.now()
-  //console.log("用时" + (end - start) + "毫秒");
+  //console.log("用时"+(end-start)+"毫秒");
   //恢复记录
   await hostControl.resumeHistory(suspensionID);
   return result;
 }
 
 async function changePage() {
-  const allLayers = await getSelectedLayers()
+  const allLayers = await getSelectedLayersIDs()
   let key;
   if (allLayers.length === 0) {
     key = "no_layers"
@@ -320,6 +347,13 @@ async function changePage() {
   }
   document.getElementById("layer_count").innerHTML = `
         <ul>${translate(key, { count: allLayers.length }, locale)}</ul>`;
+  
+}
+async function changeCheckbox()
+{
+  let checked= document.getElementById("tranform_invisible_checkbox").checked
+  includeInvisible=checked
+  localStorage.setItem("tranformInvisibleChecked", checked)
 }
 
 async function execute() {
@@ -328,12 +362,17 @@ async function execute() {
 
 function init() {
   changePage()
+  //本地化文字
   document.getElementById("layer_info").innerHTML = translate("layer_info", {}, locale)
   document.getElementById("layer_count").innerHTML = translate("no_layers", {}, locale)
   document.getElementById("button_transform").innerHTML = translate("transform_button", {}, locale)
+  const checkbox=document.getElementById("tranform_invisible_checkbox")
+  checkbox.innerHTML = translate("tranform_invisible_layers", {}, locale)
+  checkbox.checked=localStorage.getItem("tranformInvisibleChecked")==="true"
+  //添加监听器
+  action.addNotificationListener(['open', 'select', 'selectNoLayers'], changePage);
+  document.getElementById("button_transform").addEventListener("click", execute);
+  document.getElementById("tranform_invisible_checkbox").addEventListener("change", changeCheckbox);
 }
 
 init()
-
-action.addNotificationListener(['open', 'select', 'selectNoLayers'], changePage);
-document.getElementById("button_transform").addEventListener("click", execute);
