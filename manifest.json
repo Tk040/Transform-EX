@@ -1,7 +1,7 @@
 {
   "id": "Test-hylba1",
   "name": "Transform EX",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "main": "index.html",
   "host": [
     {
