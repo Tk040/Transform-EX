@@ -154,6 +154,7 @@ async function getSelectedLayersIDs(kindArray = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11,
 
 async function freeTransformEX(executionContext) {
 
+
   let hostControl = executionContext.hostControl;
   //暂停记录
   let suspensionID = await hostControl.suspendHistory({
@@ -162,19 +163,21 @@ async function freeTransformEX(executionContext) {
   });
   const allLayers = await getAllLayers();
   const layersIDs = await getSelectedLayersIDs([1]);
-  let act2 = [
-    {
-      _obj: "transform",
-      "_target": [
-        {
-          "_enum": "ordinal",
-          "_ref": "layer",
-          "_value": "targetEnum"
-        }
-      ],
-      _options: { dialogOptions: "display" }
-    }
-  ]
+
+  // let act2 = [
+  //   {
+  //     _obj: "transform",
+  //     "_target": [
+  //       {
+  //         "_enum": "ordinal",
+  //         "_ref": "layer",
+  //         "_value": "targetEnum"
+  //       }
+  //     ],
+  //     _options: { dialogOptions: "display" }
+  //   }
+  // ]
+
   //可用普通变换的情况
   if (layersIDs.length <= 1 || !await hasSelection()) {
     await core.performMenuCommand({ commandID: 2207 });
@@ -217,9 +220,19 @@ async function freeTransformEX(executionContext) {
     }
   ];
 
-  //执行操作
-  await action.batchPlay(act1, { immediateRedraw: true });
+  //记录变换信息
+  let transformData
+  const listener = (event, descriptor) => {
+    transformData = descriptor;
+  }
+  await action.addNotificationListener(["transform"], listener)
+
+  //执行原生变换
+  console.log(await action.batchPlay(act1, { immediateRedraw: true }));
   const performResult = await core.performMenuCommand({ commandID: 2207 });
+
+  //console.log(transformData)
+  await action.removeNotificationListener(["transform"], listener)
 
   if (performResult.available == false || performResult.userCancelled == true) {
     //回退记录
@@ -227,13 +240,23 @@ async function freeTransformEX(executionContext) {
     return;
   }
 
-  console.log(await action.batchPlay([{
+  let result22 = await action.batchPlay([{
     "_obj": "transform",
     _target: [
       { _ref: "layer", _enum: "ordinal", _value: "targetEnum" },
     ],
-    "lastTransform": true
-  }], {}))
+    ...transformData
+  }], {})
+
+  console.log(result22)
+
+  //暂存盘已满报错
+  if (result22[0].result != undefined && result22[0].result < 0) {
+    await core.showAlert({ message: result22[0].message });
+    await hostControl.resumeHistory(suspensionID, false);
+    return
+  }
+
 
   //构造最终变换动作串
   let act3 = [];
@@ -297,7 +320,7 @@ async function freeTransformEX(executionContext) {
       // 变换 当前图层
       {
         "_obj": "transform",
-        "lastTransform": true
+        ...transformData
       }
     ]);
   }
@@ -319,18 +342,37 @@ async function freeTransformEX(executionContext) {
   let result;
   if (version === "new") {
     result = await action.batchPlay(act3, { continueOnError: true });
+    //console.log(result)
+    for (let i = 0; i < result.length; i++) {
+      if (result[i].result != undefined && result[i].result != -25920 && result[i].result < 0) {
+        await core.showAlert({ message: result[i].message });
+        await hostControl.resumeHistory(suspensionID, false);
+        return
+      }
+    }
   }
   else {
     while (act3.length !== 0) {
       result = await action.batchPlay(act3, {});
+
+      for (let i = 0; i < result.length; i++) {
+
+        if (result[i].result != undefined && result[i].result != -25920 && result[i].result < 0) {
+          await core.showAlert({ message: result[i].message });
+          await hostControl.resumeHistory(suspensionID, false);
+          return
+        }
+      }
+      //无视报错继续执行剩余部分
       act3.splice(0, result.length);
     }
   }
+
   //end = performance.now()
   //console.log("用时"+(end-start)+"毫秒");
   //恢复记录
   await hostControl.resumeHistory(suspensionID);
-  return result;
+  return;
 }
 
 async function changePage() {
@@ -347,12 +389,11 @@ async function changePage() {
   }
   document.getElementById("layer_count").innerHTML = `
         <ul>${translate(key, { count: allLayers.length }, locale)}</ul>`;
-  
+
 }
-async function changeCheckbox()
-{
-  let checked= document.getElementById("tranform_invisible_checkbox").checked
-  includeInvisible=checked
+async function changeCheckbox() {
+  let checked = document.getElementById("tranform_invisible_checkbox").checked
+  includeInvisible = checked
   localStorage.setItem("tranformInvisibleChecked", checked)
 }
 
@@ -360,15 +401,16 @@ async function execute() {
   await core.executeAsModal(freeTransformEX, { "commandName": "变换命令", interactive: true })
 }
 
+
 function init() {
   changePage()
   //本地化文字
   document.getElementById("layer_info").innerHTML = translate("layer_info", {}, locale)
   document.getElementById("layer_count").innerHTML = translate("no_layers", {}, locale)
   document.getElementById("button_transform").innerHTML = translate("transform_button", {}, locale)
-  const checkbox=document.getElementById("tranform_invisible_checkbox")
+  const checkbox = document.getElementById("tranform_invisible_checkbox")
   checkbox.innerHTML = translate("tranform_invisible_layers", {}, locale)
-  checkbox.checked=localStorage.getItem("tranformInvisibleChecked")==="true"
+  checkbox.checked = localStorage.getItem("tranformInvisibleChecked") === "true"
   //添加监听器
   action.addNotificationListener(['open', 'select', 'selectNoLayers'], changePage);
   document.getElementById("button_transform").addEventListener("click", execute);
