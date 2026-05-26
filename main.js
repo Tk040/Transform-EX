@@ -344,7 +344,8 @@ async function freeTransformEX(executionContext) {
     result = await action.batchPlay(act3, { continueOnError: true });
     //console.log(result)
     for (let i = 0; i < result.length; i++) {
-      if (result[i].result != undefined && result[i].result != -25920 && result[i].result < 0) {
+      if (result[i].result != undefined && result[i].result == -25010) {
+        //console.log(result[i])
         await core.showAlert({ message: result[i].message });
         await hostControl.resumeHistory(suspensionID, false);
         return
@@ -357,7 +358,7 @@ async function freeTransformEX(executionContext) {
 
       for (let i = 0; i < result.length; i++) {
 
-        if (result[i].result != undefined && result[i].result != -25920 && result[i].result < 0) {
+        if (result[i].result != undefined && result[i].result == -25010) {
           await core.showAlert({ message: result[i].message });
           await hostControl.resumeHistory(suspensionID, false);
           return
