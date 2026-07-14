@@ -98,19 +98,57 @@ const getAllLayerAct = [{
     failOnMissingElement: false
   }
 }]
+
 const getTargetLayerAct = [{
   _obj: "get",
   _target: [{ _property: "targetLayersIDs" }, { _ref: "document", _enum: "ordinal", _value: "targetEnum" }]
 }]
+
+//选择图层
+function selectLayerAct(layerID) {
+  return {
+    "_obj": "select",
+    "_target": [{
+      "_ref": "layer",
+      "_id": layerID
+    }],
+    "makeVisible": false,
+  }
+
+}
+
+//多选图层
+function mutiSelectLayerAct(layerIDs) {
+  return layerIDs.map((layerID, index) => {
+    const selectAct = {
+      "_obj": "select",
+      "_target": [{
+        "_ref": "layer",
+        "_id": layerID
+      }],
+      "makeVisible": false
+    }
+    if (index > 0) {
+      selectAct.selectionModifier = {
+        "_enum": "selectionModifierType",
+        "_value": "addToSelection"
+      }
+    }
+    return selectAct
+  })
+}
+
 async function getAllLayers() {
   const res0 = await action.batchPlay(getAllLayerAct, {});
   return res0[0].list
 }
+
 async function getTargetLayersIDs() {
   const res0 = await action.batchPlay(getTargetLayerAct, {});
   return res0[0].targetLayersIDs;
 }
-//获取所有图层
+
+//获取所有图层,1为普通图层,7为组层
 async function getSelectedLayersIDs(kindArray = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12]) {
 
   const layerMap = new Map()
@@ -152,37 +190,185 @@ async function getSelectedLayersIDs(kindArray = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11,
   return [...layerSet];
 }
 
+//#region 视频时间轴特有
+
+//获取目前时间线时间
+const getTimeAct = {
+  "_obj": "get",
+  "_target": [
+    { "_property": "time", "_ref": "property" },
+    { "_ref": "timeline" }
+  ]
+}
+
+//设置目前时间轴
+function setTimeAct(time) {
+  return {
+    "_obj": "set",
+    "_target": [{ "_property": "time", "_ref": "property" }, { "_ref": "timeline" }],
+    "to": time
+  }
+}
+
+//测试偏移量
+const testFrame = 54000
+//用于获取图层结束位置
+const getEndPosAct = [
+  { "_obj": "moveOutTime", "timeOffset": { "_obj": "timecode", "frame": testFrame } },
+  { "_obj": "set", "_target": [{ "_property": "time", "_ref": "property" }, { "_ref": "timeline" }], "to": { "_obj": "timecode", "minutes": 60 } },
+  { "_obj": "moveOutTime", "timeOffset": { "_obj": "timecode", "frame": -testFrame } }
+]
+
+//移动当前选择图层时间位置
+function moveLayerTimeAct(frameOffset) {
+  return {
+    "_obj": "moveAllTime",
+    "timeOffset": { "_obj": "timecode", "frame": frameOffset }
+  }
+}
+
+async function getTimelineTime() {
+  const result = await action.batchPlay([getTimeAct], {})
+
+  return result[0].time
+}
+
+//检测视频时间轴是否存在
+async function checkTimeLine() {
+  let time = await getTimelineTime()
+  let r = await action.batchPlay([setTimeAct(time)], {})
+
+  if (r[0].result == undefined) {
+    return true
+  }
+
+  return false
+}
+
+//timecode完整时间转frame时间
+function timeToFrame(time) {
+  const frame = time.frame ?? 0
+  const sec = time.seconds ?? 0
+  const minu = time.minutes ?? 0
+  const frameRate = time.frameRate ?? 0
+
+  return Math.round(frame + (sec + minu * 60) * frameRate)
+}
+
+//获取每个图层最后一个有效帧
+async function findLayerEndFrames(layersIDs) {
+  const getPosAct = []
+
+  for (let layerId of layersIDs) {
+    getPosAct.push(
+      selectLayerAct(layerId),
+      ...getEndPosAct)
+  }
+
+  const result = await action.batchPlay(getPosAct, {})
+  const endFramesByLayer = new Map()
+
+
+  for (let i = 0; i < layersIDs.length; i++) {
+    const setTimeResult = result[i * 4 + 2]
+
+    endFramesByLayer.set(layersIDs[i], timeToFrame(setTimeResult.to) - testFrame)
+  }
+
+  return endFramesByLayer
+}
+
+//#endregion
+
 async function freeTransformEX(executionContext) {
 
-
-  let hostControl = executionContext.hostControl;
+  const hostControl = executionContext.hostControl;
   //暂停记录
-  let suspensionID = await hostControl.suspendHistory({
+  const suspensionID = await hostControl.suspendHistory({
     documentID: app.activeDocument.id,
     name: translate("history", {}, locale)
   });
-  const allLayers = await getAllLayers();
-  const layersIDs = await getSelectedLayersIDs([1]);
 
-  // let act2 = [
-  //   {
-  //     _obj: "transform",
-  //     "_target": [
-  //       {
-  //         "_enum": "ordinal",
-  //         "_ref": "layer",
-  //         "_value": "targetEnum"
-  //       }
-  //     ],
-  //     _options: { dialogOptions: "display" }
-  //   }
-  // ]
+  const allLayers = await getAllLayers();
+  const layersIDs = await getSelectedLayersIDs([1])
+
+  if (layersIDs.length == 0) {
+    await hostControl.resumeHistory(suspensionID, false);
+    return
+  }
+
+  let existed = await checkTimeLine()
+  if (existed) {
+    //初始时间轴时间
+    const originTime = await getTimelineTime()
+
+    const layerEndMap = await findLayerEndFrames(layersIDs, originTime)
+
+    let maxFrame = Math.max(...layerEndMap.values())
+
+    console.log(maxFrame)
+
+    let moveAct = []
+    //对齐所有图层
+    for (let i = 0; i < layersIDs.length; i++) {
+      moveAct.push(selectLayerAct(layersIDs[i]),
+        moveLayerTimeAct(maxFrame - layerEndMap.get(layersIDs[i])))
+    }
+
+    //恢复多选状态
+    moveAct.push(...mutiSelectLayerAct(layersIDs))
+    //移动指针
+    moveAct.push(setTimeAct({ "_obj": "timecode", "frame": maxFrame }))
+    await action.batchPlay(moveAct, {})
+
+    code = await normalTranform(allLayers, layersIDs)
+
+    if (code < 0) {
+      //回退记录
+      await hostControl.resumeHistory(suspensionID, false);
+      return
+    }
+
+    moveAct.length = 0
+    //还原所有图层
+    for (let i = 0; i < layersIDs.length; i++) {
+      moveAct.push(selectLayerAct(layersIDs[i]),
+        moveLayerTimeAct(-(maxFrame - layerEndMap.get(layersIDs[i]))))
+    }
+    moveAct.push(setTimeAct(originTime))
+
+    let r = await action.batchPlay(moveAct, {})
+
+    console.log(r);
+
+    await hostControl.resumeHistory(suspensionID);
+  }
+  else {
+    let code = await normalTranform(allLayers, layersIDs)
+
+    if (code < 0) {
+      //回退记录
+      await hostControl.resumeHistory(suspensionID, false);
+      return
+    }
+
+    await hostControl.resumeHistory(suspensionID);
+  }
+
+}
+
+//普通的图层的变换
+async function normalTranform(allLayers, layersIDs) {
 
   //可用普通变换的情况
   if (layersIDs.length <= 1 || !await hasSelection()) {
-    await core.performMenuCommand({ commandID: 2207 });
-    await hostControl.resumeHistory(suspensionID);
-    return;
+    let r = await core.performMenuCommand({ commandID: 2207 });
+    if (available == true && userCancelled == false) {
+      return 0
+    }
+    else {
+      return -1
+    }
   }
   const targetLayersIDs = layersIDs.filter(id => allLayers.find(layer => layer.layerID === id).visible || includeInvisible).map(layerId => ({
     "_id": layerId,
@@ -204,6 +390,10 @@ async function freeTransformEX(executionContext) {
         }
       ],
       "name": "selec临时选区tion"
+    },
+    {
+      "_obj": "show",
+      "null": targetLayersIDs
     },
     {
       "_obj": "duplicate",
@@ -235,9 +425,7 @@ async function freeTransformEX(executionContext) {
   await action.removeNotificationListener(["transform"], listener)
 
   if (performResult.available == false || performResult.userCancelled == true) {
-    //回退记录
-    await hostControl.resumeHistory(suspensionID, false);
-    return;
+    return -1;
   }
 
   let result22 = await action.batchPlay([{
@@ -253,11 +441,11 @@ async function freeTransformEX(executionContext) {
   //暂存盘已满报错
   if (result22[0].result != undefined && result22[0].result < 0) {
     await core.showAlert({ message: result22[0].message });
-    await hostControl.resumeHistory(suspensionID, false);
-    return
+    return -1
   }
 
 
+  //执行自定义变换
   //构造最终变换动作串
   let act3 = [];
   //起头
@@ -293,16 +481,8 @@ async function freeTransformEX(executionContext) {
     })
   for (let layerId of layersIDs) {
 
-    act3.push(...[
-      //选择图层
-      {
-        "_obj": "select",
-        "_target": [{
-          "_ref": "layer",
-          "_id": layerId
-        }],
-        "makeVisible": false,
-      },
+    act3.push(
+      selectLayerAct(layerId),
       //设置选区
       {
         "_obj": "set",
@@ -322,7 +502,7 @@ async function freeTransformEX(executionContext) {
         "_obj": "transform",
         ...transformData
       }
-    ]);
+    );
   }
   //收尾
   act3.push({
@@ -347,8 +527,7 @@ async function freeTransformEX(executionContext) {
       if (result[i].result != undefined && result[i].result == -25010) {
         //console.log(result[i])
         await core.showAlert({ message: result[i].message });
-        await hostControl.resumeHistory(suspensionID, false);
-        return
+        return -1
       }
     }
   }
@@ -360,8 +539,7 @@ async function freeTransformEX(executionContext) {
 
         if (result[i].result != undefined && result[i].result == -25010) {
           await core.showAlert({ message: result[i].message });
-          await hostControl.resumeHistory(suspensionID, false);
-          return
+          return -1
         }
       }
       //无视报错继续执行剩余部分
@@ -372,8 +550,12 @@ async function freeTransformEX(executionContext) {
   //end = performance.now()
   //console.log("用时"+(end-start)+"毫秒");
   //恢复记录
-  await hostControl.resumeHistory(suspensionID);
-  return;
+
+  return 0;
+}
+
+async function prepareTimelineTrans() {
+
 }
 
 async function changePage() {
@@ -402,6 +584,10 @@ async function execute() {
   await core.executeAsModal(freeTransformEX, { "commandName": "变换命令", interactive: true })
 }
 
+async function actionListener(event, descriptor) {
+  console.log(event)
+  console.log(descriptor)
+}
 
 function init() {
   changePage()
@@ -411,9 +597,12 @@ function init() {
   document.getElementById("button_transform").innerHTML = translate("transform_button", {}, locale)
   const checkbox = document.getElementById("tranform_invisible_checkbox")
   checkbox.innerHTML = translate("tranform_invisible_layers", {}, locale)
+  //赋值变量
   checkbox.checked = localStorage.getItem("tranformInvisibleChecked") === "true"
+  includeInvisible = checkbox.checked
   //添加监听器
   action.addNotificationListener(['open', 'select', 'selectNoLayers'], changePage);
+  //action.addNotificationListener(["all"], actionListener)
   document.getElementById("button_transform").addEventListener("click", execute);
   document.getElementById("tranform_invisible_checkbox").addEventListener("change", changeCheckbox);
 }
