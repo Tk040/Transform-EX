@@ -210,6 +210,14 @@ function setTimeAct(time) {
   }
 }
 
+function setFrameRateAct(frameRate) {
+  return {
+    "_obj": "set", "_target": [{ "_property": "documentTimelineSettings", "_ref": "property" },
+    { "_ref": "timeline" }],
+    "frameRate": frameRate
+  }
+}
+
 //测试偏移量
 const testFrame = 54000
 //用于获取图层结束位置
@@ -272,7 +280,8 @@ async function findLayerEndFrames(layersIDs) {
   for (let i = 0; i < layersIDs.length; i++) {
     const setTimeResult = result[i * 4 + 2]
 
-    endFramesByLayer.set(layersIDs[i], timeToFrame(setTimeResult.to) - testFrame)
+    let frameTime = timeToFrame(setTimeResult.to)
+    endFramesByLayer.set(layersIDs[i], frameTime - testFrame)
   }
 
   return endFramesByLayer
@@ -297,33 +306,44 @@ async function freeTransformEX(executionContext) {
     return
   }
 
+  console.log(await action.batchPlay([{ "_obj": "get", "_target": [{ "_property": "documentTimelineSettings", "_ref": "property" }, { "_ref": "timeline" }] }], {}));
+
   let existed = await checkTimeLine()
   if (existed) {
-    //初始时间轴时间
+    
+    const oldTime=await getTimelineTime()
+    const originFrameRate=oldTime.frameRate
+    //时间轴设为30帧来对齐
+    await action.batchPlay([setFrameRateAct(30)],{})
+
     const originTime = await getTimelineTime()
+    console.log(originTime)
 
     const layerEndMap = await findLayerEndFrames(layersIDs, originTime)
 
-    let maxFrame = Math.max(...layerEndMap.values())
+    //执行变换的帧时间
+    let transFrame = 54000
 
-    console.log(maxFrame)
+    console.log(transFrame)
 
     let moveAct = []
     //对齐所有图层
     for (let i = 0; i < layersIDs.length; i++) {
       moveAct.push(selectLayerAct(layersIDs[i]),
-        moveLayerTimeAct(maxFrame - layerEndMap.get(layersIDs[i])))
+        moveLayerTimeAct(transFrame - layerEndMap.get(layersIDs[i])))
     }
 
     //恢复多选状态
     moveAct.push(...mutiSelectLayerAct(layersIDs))
     //移动指针
-    moveAct.push(setTimeAct({ "_obj": "timecode", "frame": maxFrame }))
+    moveAct.push(setTimeAct({ "_obj": "timecode", "frame": transFrame }))
     await action.batchPlay(moveAct, {})
 
     code = await normalTranform(allLayers, layersIDs)
 
     if (code < 0) {
+      //还原时间
+      await action.batchPlay([setFrameRateAct(originFrameRate)],{})
       //回退记录
       await hostControl.resumeHistory(suspensionID, false);
       return
@@ -333,7 +353,7 @@ async function freeTransformEX(executionContext) {
     //还原所有图层
     for (let i = 0; i < layersIDs.length; i++) {
       moveAct.push(selectLayerAct(layersIDs[i]),
-        moveLayerTimeAct(-(maxFrame - layerEndMap.get(layersIDs[i]))))
+        moveLayerTimeAct(-(transFrame - layerEndMap.get(layersIDs[i]))))
     }
     moveAct.push(setTimeAct(originTime))
 
@@ -341,6 +361,8 @@ async function freeTransformEX(executionContext) {
 
     console.log(r);
 
+    //还原时间
+    await action.batchPlay([setFrameRateAct(originFrameRate)],{})
     await hostControl.resumeHistory(suspensionID);
   }
   else {
@@ -363,7 +385,7 @@ async function normalTranform(allLayers, layersIDs) {
   //可用普通变换的情况
   if (layersIDs.length <= 1 || !await hasSelection()) {
     let r = await core.performMenuCommand({ commandID: 2207 });
-    if (available == true && userCancelled == false) {
+    if (r.available == true && r.userCancelled == false) {
       return 0
     }
     else {
